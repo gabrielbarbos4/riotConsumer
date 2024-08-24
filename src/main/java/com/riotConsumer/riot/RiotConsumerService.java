@@ -1,8 +1,9 @@
 package com.riotConsumer.riot;
 
-import java.net.URI;
+import com.riotConsumer.riot.response.queue.QueueResponse;
 
 public interface RiotConsumerService {
-    void runConsumer();
+    void runConsumer(String apiKey);
 
+    QueueResponse getQueue();
 }
