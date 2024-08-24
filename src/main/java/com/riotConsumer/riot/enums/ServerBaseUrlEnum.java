@@ -24,7 +24,7 @@ public enum ServerBaseUrlEnum {
             throw new RuntimeException("Invalid String Url");
         }
 
-        return url.substring(URL_START.length(), url.indexOf(".api.riotgames.com/lol")).toUpperCase();
+        return url.substring(URL_START.length(), url.indexOf(".api.riotgames.com/lol"));
     }
 
     public static List<String> getAllServerUrls() {
