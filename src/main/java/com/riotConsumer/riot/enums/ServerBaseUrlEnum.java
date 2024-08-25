@@ -9,7 +9,8 @@ public enum ServerBaseUrlEnum {
     BR_1("br1"),
     KR("kr"),
     EUN1("eun1"),
-    EUW("euw1");
+    EUW("euw1"),
+    AMERICAS("americas");
 
     private final String code;
 
@@ -33,6 +34,10 @@ public enum ServerBaseUrlEnum {
         return Arrays.stream(ServerBaseUrlEnum.values())
             .map(serverUrl -> baseUrl.replace("{0}", serverUrl.getCode()))
             .collect(Collectors.toList());
+    }
+
+    public static String toUrl(ServerBaseUrlEnum key) {
+        return "https://{0}.api.riotgames.com/lol".replace("{0}", key.getCode());
     }
 
     public String getCode() {
