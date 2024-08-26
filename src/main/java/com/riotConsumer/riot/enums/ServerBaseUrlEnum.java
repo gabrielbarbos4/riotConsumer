@@ -2,11 +2,10 @@ package com.riotConsumer.riot.enums;
 
 import lombok.Getter;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Getter
@@ -55,16 +54,7 @@ public enum ServerBaseUrlEnum {
     }
 
     public static List<String> getAllServerUrls() {
-        String baseUrl = "https://{0}.api.riotgames.com/lol";
-
-        return Arrays.stream(ServerBaseUrlEnum.values())
-            .filter(serverBaseUrl -> !serverBaseUrl.isContinent())
-            .map(serverUrl -> baseUrl.replace("{0}", serverUrl.getCode()))
-            .collect(Collectors.toList());
-    }
-
-    public static String toUrl(ServerBaseUrlEnum key) {
-        return "https://{0}.api.riotgames.com/lol".replace("{0}", key.getCode());
+        return new ArrayList<>(MOUNTED_URL_BY_REGION_CODE.values());
     }
 
     public static List<ServerBaseUrlEnum> continents() {

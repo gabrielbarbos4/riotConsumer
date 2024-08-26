@@ -48,26 +48,6 @@ public class RiotConsumerService {
     }
 
     @Async
-    public void runConsumer(String apiKey) {
-        API_KEY = apiKey;
-        API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
-
-        ServerBaseUrlEnum.getAllServerUrls().forEach(url -> {
-            BASE_URL = url;
-
-            final QueueResponse queueResponse = getQueue(QueueEnum.CHALLENGER);
-            final List<String> apiPuuids = getPuuids(queueResponse);
-            final List<Puuid> savedPuuids = puuidService.saveAll(apiPuuids, url, QueueEnum.CHALLENGER.toString());
-
-//            for (Puuid puuid : savedPuuids) {
-//                getMatchIds(puuid.getPuuid(), url);
-//            }
-        });
-
-        logger.info("Process finished.");
-    }
-
-    @Async
     public void runPuuidsConsumer(String apiKey) {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
@@ -134,7 +114,7 @@ public class RiotConsumerService {
         logger.info("Start getting match ids");
 
         final ServerBaseUrlEnum continent = ServerBaseUrlEnum.continentFromRegion(region);
-        final String baseUrl = ServerBaseUrlEnum.toUrl(continent);
+        final String baseUrl = ServerBaseUrlEnum.mountedUrlFromCode(continent.getCode());
         final String url = baseUrl + "/match/v5/matches/by-puuid/" + puuid + "/ids";
 
         for (int i = 1; i <= TIME_STAMP_PAST_LIMIT; i++) {
