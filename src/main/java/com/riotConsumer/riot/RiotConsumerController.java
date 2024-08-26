@@ -22,4 +22,18 @@ public class RiotConsumerController {
 
         return ResponseEntity.accepted().body("Request received, processing.");
     }
+
+    @GetMapping("/puuid")
+    ResponseEntity<String> runPuuidConsumer(@RequestParam(name = "api_key") String apiKey) {
+        riotConsumerService.runPuuidsConsumer(apiKey);
+
+        return ResponseEntity.accepted().body("Request received, processing.");
+    }
+
+    @GetMapping("/match-id")
+    ResponseEntity<String> runMatchIdConsumer(@RequestParam(name = "api_key") String apiKey) {
+        riotConsumerService.runMatchIdConsumer(apiKey);
+
+        return ResponseEntity.accepted().body("Request received, processing.");
+    }
 }

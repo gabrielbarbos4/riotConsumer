@@ -4,6 +4,7 @@ import com.riotConsumer.riot.data.match.Match;
 import com.riotConsumer.riot.data.match.MatchService;
 import com.riotConsumer.riot.data.puuid.Puuid;
 import com.riotConsumer.riot.data.puuid.PuuidService;
+import com.riotConsumer.riot.enums.QueueEnum;
 import com.riotConsumer.riot.enums.ServerBaseUrlEnum;
 import com.riotConsumer.riot.response.queue.QueueResponse;
 import com.riotConsumer.riot.response.queue.QueueSummonerResponse;
@@ -47,34 +48,78 @@ public class RiotConsumerService {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
 
-        puuidService.clearAll();
+        ServerBaseUrlEnum.getAllServerUrls().forEach(url -> {
+            BASE_URL = url;
 
-        ServerBaseUrlEnum.getAllServerUrls()
-            .stream()
-            .filter(e -> Objects.equals(e, "https://br1.api.riotgames.com/lol"))
-            .forEach(url -> {
-                BASE_URL = url;
+            final QueueResponse queueResponse = getQueue(QueueEnum.CHALLENGER);
+            final List<String> apiPuuids = getPuuids(queueResponse);
+            final List<Puuid> savedPuuids = puuidService.saveAll(apiPuuids, url, QueueEnum.CHALLENGER.toString());
 
-                final QueueResponse queueResponse = getQueue();
-                final List<String> apiPuuids = getPuuids(queueResponse);
-                final List<Puuid> savedPuuids = puuidService.saveAll(apiPuuids, url);
-//                final List<Puuid> savedPuuids = puuidService.getAll(ServerBaseUrlEnum.BR_1.getCode());
-                final List<List<Match>> groupedMatches = new ArrayList<>();
-
-                for (Puuid puuid : savedPuuids) {
-                    final List<Match> savedMatches = getMatchIds(puuid.getPuuid());
-                    groupedMatches.add(savedMatches);
-                }
-            });
+//            for (Puuid puuid : savedPuuids) {
+//                getMatchIds(puuid.getPuuid(), url);
+//            }
+        });
 
         logger.info("Process finished.");
     }
 
-    public List<Match> getMatchIds(String puuid) {
+    @Async
+    public void runPuuidsConsumer(String apiKey) {
+        API_KEY = apiKey;
+        API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
+
+        ServerBaseUrlEnum.getAllServerUrls().forEach(url -> {
+            BASE_URL = url;
+            QueueEnum.urlsExcluding(QueueEnum.MASTER).forEach(queueEnum -> {
+                final QueueResponse queueResponse = getQueue(queueEnum);
+                final List<String> apiPuuids = getPuuids(queueResponse);
+
+                puuidService.saveAll(apiPuuids, url, queueEnum.toString());
+            });
+        });
+    }
+
+    @Async
+    public void runMatchIdConsumer(String apiKey) {
+        API_KEY = apiKey;
+        API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
+
+        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.values()) {
+            logger.info("Consuming match id");
+            final List<Puuid> savedPuuids = puuidService.getAll(serverBaseUrlEnum.getCode());
+
+            for (Puuid puuid : savedPuuids) {
+                getMatchIds(puuid.getPuuid(), puuid.getRegion());
+            }
+        }
+    }
+
+    @Async
+    public void runMatchDetailsConsumer(String apiKey) {
+        API_KEY = apiKey;
+        API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
+
+        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.values()) {
+            logger.info("Consuming match id");
+            final List<Match> matchs = matchService.getAllByRegion(serverBaseUrlEnum.getCode());
+
+            for (Match match : matchs) {
+                getMatchDetails();
+            }
+        }
+    }
+
+    public void getMatchDetails() {
+
+    }
+
+    public void getMatchIds(String puuid, String region) {
         logger.info("Start getting match ids");
 
-        final String url = ServerBaseUrlEnum.toUrl(ServerBaseUrlEnum.AMERICAS) + "/match/v5/matches/by-puuid/" + puuid + "/ids";
         final List<Match> matches = new ArrayList<>();
+        final ServerBaseUrlEnum continent = ServerBaseUrlEnum.continentFromRegion(region);
+        final String baseUrl = ServerBaseUrlEnum.toUrl(continent);
+        final String url = baseUrl + "/match/v5/matches/by-puuid/" + puuid + "/ids";
 
         for (int i = 1; i <= TIME_STAMP_PAST_LIMIT; i++) {
             sleepRateLimit();
@@ -86,25 +131,25 @@ public class RiotConsumerService {
                 Map.entry("startTime", String.valueOf(startTime.getEpochSecond())),
                 Map.entry("endTime", String.valueOf(endTime.getEpochSecond())),
                 Map.entry("api_key", API_KEY),
+                Map.entry("type", "ranked"),
                 Map.entry("count", "100")
             );
             final String urlWithParameters = HttpUtil.applyQueryParameters(queryParameters, url);
             final ResponseEntity<String[]> response = this.restTemplate.getForEntity(urlWithParameters, String[].class);
             final List<String> match_ids = Arrays.asList(Objects.requireNonNull(response.getBody()));
-            final List<Match> savedList = matchService.saveAll(match_ids, ServerBaseUrlEnum.fromUrl(BASE_URL));
 
-            matches.addAll(savedList);
-
+            matchService.saveAll(match_ids, ServerBaseUrlEnum.codeFromUrl(baseUrl));
             rate_limit_counter++;
         }
 
         logger.info("Success to get match ids for puuid: " + puuid);
-        return matches;
     }
 
-    public QueueResponse getQueue() {
+    public QueueResponse getQueue(QueueEnum queue) {
+        logger.info("Consuming queues");
         sleepRateLimit();
-        final String url = BASE_URL + "/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5" + API_KEY_QUERY_PARAMETER;
+
+        final String url = BASE_URL + "/league/v4" + queue.getUrl() + API_KEY_QUERY_PARAMETER;
         final QueueResponse queueResponse = this.restTemplate.getForObject(url, QueueResponse.class);
 
         rate_limit_counter++;
@@ -114,7 +159,7 @@ public class RiotConsumerService {
             return null;
         }
 
-        logger.info(String.format("[%s] %s %s", ServerBaseUrlEnum.fromUrl(BASE_URL), "Challenger league size:", queueResponse.getEntries().size()));
+        logger.info(String.format("[%s] %s %s %s", ServerBaseUrlEnum.codeFromUrl(BASE_URL), queue.toString(), "league size:", queueResponse.getEntries().size()));
         return queueResponse;
     }
 

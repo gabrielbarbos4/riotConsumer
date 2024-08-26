@@ -14,4 +14,5 @@ public class Puuid {
     @Id
     private String puuid;
     private String region;
+    private String eloWhenSaved;
 }
