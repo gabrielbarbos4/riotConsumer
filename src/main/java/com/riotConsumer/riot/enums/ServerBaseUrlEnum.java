@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Getter
 public enum ServerBaseUrlEnum {
@@ -19,8 +20,16 @@ public enum ServerBaseUrlEnum {
     ASIA("asia", true);
 
     private static final Map<String, ServerBaseUrlEnum> CONTINENT_BY_REGION_CODE = new HashMap<>();
+    private static final Map<String, String> MOUNTED_URL_BY_REGION_CODE = new HashMap<>();
 
     static {
+        for (ServerBaseUrlEnum serverBaseUrlEnum : values()) {
+            MOUNTED_URL_BY_REGION_CODE.put(
+                serverBaseUrlEnum.code,
+                "https://{0}.api.riotgames.com/lol".replace("{0}", serverBaseUrlEnum.getCode())
+            );
+        }
+
         CONTINENT_BY_REGION_CODE.put(ServerBaseUrlEnum.BR_1.code, ServerBaseUrlEnum.AMERICAS);
         CONTINENT_BY_REGION_CODE.put(ServerBaseUrlEnum.EUN1.code, ServerBaseUrlEnum.AMERICAS);
         CONTINENT_BY_REGION_CODE.put(ServerBaseUrlEnum.EUW.code, ServerBaseUrlEnum.AMERICAS);
@@ -45,14 +54,6 @@ public enum ServerBaseUrlEnum {
         return url.substring(URL_START.length(), url.indexOf(".api.riotgames.com/lol"));
     }
 
-    public static String toUrl(ServerBaseUrlEnum key) {
-        return "https://{0}.api.riotgames.com/lol".replace("{0}", key.getCode());
-    }
-
-    public static ServerBaseUrlEnum continentFromRegion(String code) {
-        return CONTINENT_BY_REGION_CODE.get(code);
-    }
-
     public static List<String> getAllServerUrls() {
         String baseUrl = "https://{0}.api.riotgames.com/lol";
 
@@ -60,5 +61,21 @@ public enum ServerBaseUrlEnum {
             .filter(serverBaseUrl -> !serverBaseUrl.isContinent())
             .map(serverUrl -> baseUrl.replace("{0}", serverUrl.getCode()))
             .collect(Collectors.toList());
+    }
+
+    public static String toUrl(ServerBaseUrlEnum key) {
+        return "https://{0}.api.riotgames.com/lol".replace("{0}", key.getCode());
+    }
+
+    public static List<ServerBaseUrlEnum> continents() {
+        return Stream.of(values()).filter(ServerBaseUrlEnum::isContinent).toList();
+    }
+
+    public static ServerBaseUrlEnum continentFromRegion(String code) {
+        return CONTINENT_BY_REGION_CODE.get(code);
+    }
+
+    public static String mountedUrlFromCode(String code) {
+        return MOUNTED_URL_BY_REGION_CODE.get(code);
     }
 }

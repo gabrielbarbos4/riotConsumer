@@ -2,6 +2,8 @@ package com.riotConsumer.riot;
 
 import com.riotConsumer.riot.data.match.Match;
 import com.riotConsumer.riot.data.match.MatchService;
+import com.riotConsumer.riot.data.matchDetails.MatchDetail;
+import com.riotConsumer.riot.data.matchDetails.MatchDetailService;
 import com.riotConsumer.riot.data.puuid.Puuid;
 import com.riotConsumer.riot.data.puuid.PuuidService;
 import com.riotConsumer.riot.enums.QueueEnum;
@@ -28,6 +30,7 @@ public class RiotConsumerService {
     private final RestTemplate restTemplate;
     private final PuuidService puuidService;
     private final MatchService matchService;
+    private final MatchDetailService matchDetailService;
     private final Logger logger = LogManager.getLogger(RiotConsumerService.class);
 
     private final int TIME_STAMP_PAST_LIMIT = 14;
@@ -37,10 +40,11 @@ public class RiotConsumerService {
     private String API_KEY;
     private String BASE_URL;
 
-    public RiotConsumerService(RestTemplate restTemplate, PuuidService puuidService, MatchService matchService) {
+    public RiotConsumerService(RestTemplate restTemplate, PuuidService puuidService, MatchService matchService, MatchDetailService matchDetailService) {
         this.restTemplate = restTemplate;
         this.puuidService = puuidService;
         this.matchService = matchService;
+        this.matchDetailService = matchDetailService;
     }
 
     @Async
@@ -99,24 +103,36 @@ public class RiotConsumerService {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
 
-        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.values()) {
-            logger.info("Consuming match id");
-            final List<Match> matchs = matchService.getAllByRegion(serverBaseUrlEnum.getCode());
+        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.continents()) {
+            logger.info("Consuming details from region: " + serverBaseUrlEnum.getCode());
+
+            final String code = serverBaseUrlEnum.getCode();
+            final List<Match> matchs = matchService.getAllByRegion(code);
 
             for (Match match : matchs) {
-                getMatchDetails();
+                getMatchDetails(match.getMatch(), ServerBaseUrlEnum.mountedUrlFromCode(code));
             }
         }
     }
 
-    public void getMatchDetails() {
+    public void getMatchDetails(String matchId, String serverUrl) {
+        sleepRateLimit();
+        logger.info("Consuming details for match: " + matchId);
 
+        final String url = serverUrl + "/match/v5/matches/" + matchId + API_KEY_QUERY_PARAMETER;
+        final MatchDetail detail = this.restTemplate.getForObject(url, MatchDetail.class);
+
+        if(detail != null) {
+            detail.setId(matchId);
+            matchDetailService.save(detail);
+        }
+
+        rate_limit_counter++;
     }
 
     public void getMatchIds(String puuid, String region) {
         logger.info("Start getting match ids");
 
-        final List<Match> matches = new ArrayList<>();
         final ServerBaseUrlEnum continent = ServerBaseUrlEnum.continentFromRegion(region);
         final String baseUrl = ServerBaseUrlEnum.toUrl(continent);
         final String url = baseUrl + "/match/v5/matches/by-puuid/" + puuid + "/ids";

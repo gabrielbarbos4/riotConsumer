@@ -36,4 +36,11 @@ public class RiotConsumerController {
 
         return ResponseEntity.accepted().body("Request received, processing.");
     }
+
+    @GetMapping("/match-detail")
+    ResponseEntity<String> runMatchDetailConsumer(@RequestParam(name = "api_key") String apiKey) {
+        riotConsumerService.runMatchDetailsConsumer(apiKey);
+
+        return ResponseEntity.accepted().body("Request received, processing.");
+    }
 }
