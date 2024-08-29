@@ -25,6 +25,10 @@ public enum QueueEnum {
         return Stream.of(QueueEnum.values()).map(QueueEnum::getUrl).toList();
     }
 
+    public static List<QueueEnum> asStream() {
+        return Stream.of(QueueEnum.values()).toList();
+    }
+
     public static List<QueueEnum> urlsExcluding(QueueEnum excludedQueue) {
         return Stream.of(QueueEnum.values())
             .filter(value -> !Objects.equals(value, excludedQueue))

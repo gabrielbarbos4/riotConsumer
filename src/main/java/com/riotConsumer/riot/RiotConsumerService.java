@@ -5,21 +5,24 @@ import com.riotConsumer.riot.data.match.MatchService;
 import com.riotConsumer.riot.data.matchDetails.MatchDetail;
 import com.riotConsumer.riot.data.matchDetails.MatchDetailService;
 import com.riotConsumer.riot.data.puuid.Puuid;
+import com.riotConsumer.riot.data.puuid.PuuidIdSummonerIdDTO;
 import com.riotConsumer.riot.data.puuid.PuuidService;
 import com.riotConsumer.riot.enums.QueueEnum;
-import com.riotConsumer.riot.enums.ServerBaseUrlEnum;
+import com.riotConsumer.riot.enums.ServerEnum;
 import com.riotConsumer.riot.response.queue.QueueResponse;
 import com.riotConsumer.riot.response.queue.QueueSummonerResponse;
 import com.riotConsumer.riot.response.summoner.GetSummonerWithEncryptedIdResponse;
 import com.riotConsumer.riot.util.HttpUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -33,12 +36,10 @@ public class RiotConsumerService {
     private final MatchDetailService matchDetailService;
     private final Logger logger = LogManager.getLogger(RiotConsumerService.class);
 
-    private final int TIME_STAMP_PAST_LIMIT = 14;
     private int rate_limit_counter = 0;
 
     private String API_KEY_QUERY_PARAMETER;
     private String API_KEY;
-    private String BASE_URL;
 
     public RiotConsumerService(RestTemplate restTemplate, PuuidService puuidService, MatchService matchService, MatchDetailService matchDetailService) {
         this.restTemplate = restTemplate;
@@ -52,15 +53,19 @@ public class RiotConsumerService {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
 
-        ServerBaseUrlEnum.getAllServerUrls().forEach(url -> {
-            BASE_URL = url;
-            QueueEnum.urlsExcluding(QueueEnum.MASTER).forEach(queueEnum -> {
-                final QueueResponse queueResponse = getQueue(queueEnum);
-                final List<String> apiPuuids = getPuuids(queueResponse);
+        ServerEnum.mountedRegionUrls()
+            .stream()
+            .filter(url -> !ServerEnum.codeFromUrl(url).equals(ServerEnum.BR_1.getCode()))
+            .forEach(url -> {
+                QueueEnum.asStream().forEach(queueEnum -> {
+                    final List<QueueSummonerResponse> queue = getQueue(queueEnum, url);
+                    final List<PuuidIdSummonerIdDTO> apiPuuids = getPuuids(queue, url);
 
-                puuidService.saveAll(apiPuuids, url, queueEnum.toString());
+                    puuidService.saveAll(apiPuuids, url, queueEnum.toString());
+                });
             });
-        });
+
+        logger.info("Finished Puuid Consumer");
     }
 
     @Async
@@ -68,12 +73,12 @@ public class RiotConsumerService {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
 
-        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.values()) {
+        for (ServerEnum serverEnum : ServerEnum.values()) {
             logger.info("Consuming match id");
-            final List<Puuid> savedPuuids = puuidService.getAll(serverBaseUrlEnum.getCode());
+            final List<Puuid> savedPuuids = puuidService.getAll(serverEnum.getCode());
 
             for (Puuid puuid : savedPuuids) {
-                getMatchIds(puuid.getPuuid(), puuid.getRegion());
+                getMatchIds(puuid, puuid.getRegion());
             }
         }
     }
@@ -83,14 +88,14 @@ public class RiotConsumerService {
         API_KEY = apiKey;
         API_KEY_QUERY_PARAMETER = "?api_key=" + apiKey;
 
-        for (ServerBaseUrlEnum serverBaseUrlEnum : ServerBaseUrlEnum.continents()) {
-            logger.info("Consuming details from region: " + serverBaseUrlEnum.getCode());
+        for (ServerEnum serverEnum : ServerEnum.continents()) {
+            logger.info("Consuming details from region: " + serverEnum.getCode());
 
-            final String code = serverBaseUrlEnum.getCode();
-            final List<Match> matchs = matchService.getAllByRegion(code);
+            final String code = serverEnum.getCode();
+            final List<Match> matchs = matchService.getAllByRegionAndVerified(code, false);
 
             for (Match match : matchs) {
-                getMatchDetails(match.getMatch(), ServerBaseUrlEnum.mountedUrlFromCode(code));
+                getMatchDetails(match.getMatch(), ServerEnum.mountedUrlFromCode(code));
             }
         }
     }
@@ -104,48 +109,55 @@ public class RiotConsumerService {
 
         if(detail != null) {
             detail.setId(matchId);
+            matchService.setVerified(matchId);
             matchDetailService.save(detail);
         }
 
         rate_limit_counter++;
     }
 
-    public void getMatchIds(String puuid, String region) {
+    public void getMatchIds(Puuid puuid, String region) {
         logger.info("Start getting match ids");
 
-        final ServerBaseUrlEnum continent = ServerBaseUrlEnum.continentFromRegion(region);
-        final String baseUrl = ServerBaseUrlEnum.mountedUrlFromCode(continent.getCode());
-        final String url = baseUrl + "/match/v5/matches/by-puuid/" + puuid + "/ids";
+        final ServerEnum continent = ServerEnum.continentFromRegion(region);
+        final String baseUrl = ServerEnum.mountedUrlFromCode(continent.getCode());
+        final String url = baseUrl + "/match/v5/matches/by-puuid/" + puuid.getPuuid() + "/ids";
+        final int TIME_STAMP_PAST_LIMIT = 30;
 
+        System.out.println(url);
         for (int i = 1; i <= TIME_STAMP_PAST_LIMIT; i++) {
             sleepRateLimit();
 
             final LocalDate timeNow = LocalDate.now().minusDays(i);
-            final Instant endTime = timeNow.atStartOfDay(ZoneId.systemDefault()).toInstant();
-            final Instant startTime = timeNow.minusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
-            final Map<String, String> queryParameters = Map.ofEntries(
-                Map.entry("startTime", String.valueOf(startTime.getEpochSecond())),
-                Map.entry("endTime", String.valueOf(endTime.getEpochSecond())),
-                Map.entry("api_key", API_KEY),
-                Map.entry("type", "ranked"),
-                Map.entry("count", "100")
-            );
-            final String urlWithParameters = HttpUtil.applyQueryParameters(queryParameters, url);
-            final ResponseEntity<String[]> response = this.restTemplate.getForEntity(urlWithParameters, String[].class);
-            final List<String> match_ids = Arrays.asList(Objects.requireNonNull(response.getBody()));
+            final long endTime = timeNow.atStartOfDay(ZoneId.systemDefault()).toInstant().getEpochSecond();
+            final long startTime = timeNow.minusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().getEpochSecond();
 
-            matchService.saveAll(match_ids, ServerBaseUrlEnum.codeFromUrl(baseUrl));
-            rate_limit_counter++;
+            if(!puuid.isVerified(startTime, endTime)) {
+                final Map<String, String> queryParameters = Map.ofEntries(
+                    Map.entry("startTime", String.valueOf(startTime)),
+                    Map.entry("endTime", String.valueOf(endTime)),
+                    Map.entry("api_key", API_KEY),
+                    Map.entry("type", "ranked"),
+                    Map.entry("count", "100")
+                );
+                final String urlWithParameters = HttpUtil.applyQueryParameters(queryParameters, url);
+                final ResponseEntity<String[]> response = this.restTemplate.getForEntity(urlWithParameters, String[].class);
+                final List<String> match_ids = Arrays.asList(Objects.requireNonNull(response.getBody()));
+
+                puuidService.saveVerifiedEpoch(puuid.getPuuid(), startTime, endTime);
+                matchService.saveAll(match_ids, ServerEnum.codeFromUrl(baseUrl));
+                rate_limit_counter++;
+            }
         }
 
-        logger.info("Success to get match ids for puuid: " + puuid);
+        logger.info("Success to get match ids for puuid: " + puuid.getPuuid());
     }
 
-    public QueueResponse getQueue(QueueEnum queue) {
+    public List<QueueSummonerResponse> getQueue(QueueEnum queue, String baseUrl) {
         logger.info("Consuming queues");
         sleepRateLimit();
 
-        final String url = BASE_URL + "/league/v4" + queue.getUrl() + API_KEY_QUERY_PARAMETER;
+        final String url = baseUrl + "/league/v4" + queue.getUrl() + API_KEY_QUERY_PARAMETER;
         final QueueResponse queueResponse = this.restTemplate.getForObject(url, QueueResponse.class);
 
         rate_limit_counter++;
@@ -155,20 +167,32 @@ public class RiotConsumerService {
             return null;
         }
 
-        logger.info(String.format("[%s] %s %s %s", ServerBaseUrlEnum.codeFromUrl(BASE_URL), queue.toString(), "league size:", queueResponse.getEntries().size()));
-        return queueResponse;
+        final List<QueueSummonerResponse> filteredQueue = filterQueue(queueResponse, queue.getName());
+
+        logger.info(String.format("[%s] %s league size: %s | after filter: %s", ServerEnum.codeFromUrl(baseUrl), queue, queueResponse.getEntries().size(), filteredQueue.size()));
+
+        return filteredQueue;
     }
 
-    public List<String> getPuuids(QueueResponse queueResponse) {
-        List<String> puuidList = new ArrayList<>();
+    private List<QueueSummonerResponse> filterQueue(QueueResponse queue, String queueName) {
+        if(QueueEnum.MASTER.getName().equals(queueName)) {
+            return queue.getEntries().stream().limit(1200).toList();
+        }
 
-        for (QueueSummonerResponse entry : queueResponse.getEntries()) {
+        return queue.getEntries();
+    }
+
+    public List<PuuidIdSummonerIdDTO> getPuuids(List<QueueSummonerResponse> queueResponse, String baseUrl) {
+        logger.info("Consuming Puuids");
+        List<PuuidIdSummonerIdDTO> puuidList = new ArrayList<>();
+
+        for (QueueSummonerResponse entry : queueResponse) {
             sleepRateLimit();
 
-            final String url = BASE_URL + "/summoner/v4/summoners/" + entry.getSummonerId() + API_KEY_QUERY_PARAMETER;
+            final String url = baseUrl + "/summoner/v4/summoners/" + entry.getSummonerId() + API_KEY_QUERY_PARAMETER;
             final GetSummonerWithEncryptedIdResponse summonerWithEncryptedIdResponse = this.restTemplate.getForObject(url, GetSummonerWithEncryptedIdResponse.class);
 
-            puuidList.add(summonerWithEncryptedIdResponse.getPuuid());
+            puuidList.add(new PuuidIdSummonerIdDTO(entry.getSummonerId(), summonerWithEncryptedIdResponse.getPuuid()));
 
             rate_limit_counter++;
         }

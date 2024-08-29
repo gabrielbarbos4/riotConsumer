@@ -16,13 +16,6 @@ public class RiotConsumerController {
         this.riotConsumerService = riotConsumerService;
     }
 
-    @GetMapping
-    ResponseEntity<String> runConsumer(@RequestParam(name = "api_key") String apiKey) {
-        riotConsumerService.runConsumer(apiKey);
-
-        return ResponseEntity.accepted().body("Request received, processing.");
-    }
-
     @GetMapping("/puuid")
     ResponseEntity<String> runPuuidConsumer(@RequestParam(name = "api_key") String apiKey) {
         riotConsumerService.runPuuidsConsumer(apiKey);

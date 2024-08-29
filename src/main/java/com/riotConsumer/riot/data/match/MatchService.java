@@ -25,13 +25,21 @@ public class MatchService {
         final List<Match> finalMatchs = matchs
             .stream()
             .filter(match -> !existentMatchs.contains(match))
-            .map(match -> new Match(match, region))
+            .map(match -> new Match(match, region, false))
             .toList();
 
         return repository.saveAll(finalMatchs);
     }
 
-    public List<Match> getAllByRegion(String region) {
-        return repository.findByRegion(region);
+    public List<Match> getAllByRegionAndVerified(String region, boolean verified) {
+        return repository.findByRegionAndVerified(region, verified);
+    }
+
+    public void setVerified(String matchId) {
+         Match match = repository.findById(matchId).orElseThrow(() -> new RuntimeException("Match not found"));
+
+         match.setVerified(true);
+
+         repository.save(match);
     }
 }
